@@ -1,0 +1,17 @@
+services:
+  agent-qq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agent-qq
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./plugins:/app/plugins
+      - ./agents:/app/agents
+      - ${CLAUDE_CONFIG_DIR:-$HOME/.claude}:/root/.claude:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "bot.py"]
