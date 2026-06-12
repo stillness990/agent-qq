@@ -47,7 +47,7 @@ nano .env
 ```env
 ONEBOT_WS_URL=ws://host.docker.internal:3001
 ADMIN_QQ_IDS=你的QQ号
-CLAUDE_CONFIG_DIR=/home/ww/.claude
+CLAUDE_CONFIG_DIR=/path/to/.claude
 ```
 
 ### 2. 本地运行
@@ -147,14 +147,38 @@ agent-qq/
 
 ## 测试
 
+本机没有 `python3-pip` / `ensurepip` 时，可以使用已安装的 `uv` 创建测试环境：
+
 ```bash
-python -m pytest
+uv venv --python python3.11 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+.venv/bin/python -m pytest -q
 ```
 
 如果当前环境没有安装依赖，可先做语法检查：
 
 ```bash
 python3 -m compileall .
+```
+
+## OneBot 推送测试
+
+先确认 NapCat 已启用 OneBot v11 WebSocket，然后检查连接：
+
+```bash
+.venv/bin/python scripts/check_onebot.py --url ws://127.0.0.1:3001
+```
+
+向指定 QQ 发送一条私聊测试消息：
+
+```bash
+.venv/bin/python scripts/send_test_private_msg.py --to 你的QQ号 --message "agent-qq 测试消息"
+```
+
+如果 NapCat 配置了 access_token，需要加上：
+
+```bash
+.venv/bin/python scripts/send_test_private_msg.py --to 你的QQ号 --token 你的token
 ```
 
 ## 后续扩展

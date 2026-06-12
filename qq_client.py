@@ -26,7 +26,11 @@ class OneBotClient:
         if self._settings.onebot_access_token:
             headers["Authorization"] = f"Bearer {self._settings.onebot_access_token}"
         self._session = aiohttp.ClientSession(headers=headers)
-        self._ws = await self._session.ws_connect(self._settings.onebot_ws_url, heartbeat=30)
+        try:
+            self._ws = await self._session.ws_connect(self._settings.onebot_ws_url, heartbeat=30)
+        except Exception:
+            await self.close()
+            raise
         logger.info("Connected to OneBot: %s", self._settings.onebot_ws_url)
 
     async def close(self) -> None:
