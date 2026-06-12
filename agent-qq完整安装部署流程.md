@@ -628,7 +628,7 @@ logs/agent-qq.log
 | 管理员 QQ 号 | `<admin_qq_id>` | 你的个人 QQ，用于接收 `/code`、`/shell` 等管理员能力 |
 | OneBot WebSocket 地址 | `ws://127.0.0.1:3001` 或 `ws://host.docker.internal:3001` | NapCat WebUI 的 OneBot v11 WebSocket Server 配置 |
 | OneBot access token | 可为空 | NapCat OneBot 配置中如填写 token，这里必须一致 |
-| Claude Code 配置目录 | `/home/ww/.claude` | 宿主机上执行 `claude` 后生成的配置目录 |
+| Claude Code 配置目录 | `/home/your-user/.claude` | 宿主机上执行 `claude` 后生成的配置目录 |
 | agent-qq 工作目录 | `/workspace` 或项目目录 | Claude Code 执行任务时所在目录 |
 
 > 说明：`ADMIN_QQ_IDS` 配置的是“允许使用管理员命令的发送方 QQ”，不是机器人 QQ。
@@ -966,7 +966,7 @@ rsync -a --delete \
   --exclude 'guild1.db*' \
   --exclude 'napcat_*.json' \
   --exclude '.claude/settings.local.json' \
-  ./ /media/ww/d1f01292-c940-497e-8051-a0b76acd008c/agent-qq/
+  ./ /path/to/publish/agent-qq/
 ```
 
 如果目标目录本身就是 Git 仓库，复制完成后在目标目录执行检查：
