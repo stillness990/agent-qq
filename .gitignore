@@ -9,6 +9,10 @@ __pycache__/
 logs/*.log
 logs/*.log.*
 
+# NapCat runtime database
+guild1.db*
+napcat_*.json
+
 # OS / editor
 .DS_Store
 .idea/

@@ -1,9 +1,9 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -16,14 +16,14 @@ class Settings(BaseSettings):
     onebot_ws_url: str = Field(default="ws://127.0.0.1:3001", alias="ONEBOT_WS_URL")
     onebot_access_token: str = Field(default="", alias="ONEBOT_ACCESS_TOKEN")
     enable_private_chat: bool = Field(default=True, alias="ENABLE_PRIVATE_CHAT")
-    admin_qq_ids: set[int] = Field(default_factory=set, alias="ADMIN_QQ_IDS")
+    admin_qq_ids: Annotated[set[int], NoDecode] = Field(default_factory=set, alias="ADMIN_QQ_IDS")
 
     claude_cli_command: str = Field(default="claude", alias="CLAUDE_CLI_COMMAND")
     claude_timeout_seconds: int = Field(default=180, alias="CLAUDE_TIMEOUT_SECONDS")
     claude_workdir: Path = Field(default=Path("/workspace"), alias="CLAUDE_WORKDIR")
 
     enable_shell_command: bool = Field(default=False, alias="ENABLE_SHELL_COMMAND")
-    shell_allowed_prefixes: tuple[str, ...] = Field(default=("pwd", "ls"), alias="SHELL_ALLOWED_PREFIXES")
+    shell_allowed_prefixes: Annotated[tuple[str, ...], NoDecode] = Field(default=("pwd", "ls"), alias="SHELL_ALLOWED_PREFIXES")
 
     message_dedupe_ttl_seconds: int = Field(default=300, alias="MESSAGE_DEDUPE_TTL_SECONDS")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO", alias="LOG_LEVEL")

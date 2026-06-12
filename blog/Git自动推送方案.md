@@ -11,13 +11,13 @@ git commit -m "feat: initial qq agent"
 ## 创建 GitHub 仓库并推送
 
 ```bash
-gh repo create stillness990/agent-qq --public --source . --remote origin --push
+gh repo create <your-github-user>/agent-qq --public --source . --remote origin --push
 ```
 
 如果远程仓库已存在：
 
 ```bash
-git remote add origin https://github.com/stillness990/agent-qq.git
+git remote add origin https://github.com/<your-github-user>/agent-qq.git
 git push -u origin main
 ```
 

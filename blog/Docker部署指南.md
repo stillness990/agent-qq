@@ -44,10 +44,10 @@ docker compose down
 ${CLAUDE_CONFIG_DIR:-$HOME/.claude}:/root/.claude:ro
 ```
 
-如果宿主机配置目录是 `/home/ww/.claude`，则 `.env` 中配置：
+如果宿主机配置目录是 `/path/to/.claude`，则 `.env` 中配置：
 
 ```env
-CLAUDE_CONFIG_DIR=/home/ww/.claude
+CLAUDE_CONFIG_DIR=/path/to/.claude
 ```
 
 ## 8. 连接 NapCat
