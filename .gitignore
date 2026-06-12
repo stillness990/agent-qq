@@ -13,6 +13,12 @@ logs/*.log.*
 guild1.db*
 napcat_*.json
 
+# Claude local state
+.claude/
+
+# Local runtime workspace
+workspace/
+
 # OS / editor
 .DS_Store
 .idea/
