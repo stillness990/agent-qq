@@ -8,12 +8,25 @@ LOG_DIR="$PROJECT_DIR/logs"
 WORKSPACE_DIR="$PROJECT_DIR/workspace"
 mkdir -p "$LOG_DIR" "$WORKSPACE_DIR"
 
+env_value() {
+  local key="$1"
+  if [[ ! -f "$PROJECT_DIR/.env" ]]; then
+    return 0
+  fi
+  grep -E "^${key}=" "$PROJECT_DIR/.env" | tail -n 1 | cut -d= -f2- | sed -e "s/^['\"]//" -e "s/['\"]$//"
+}
+
 PYTHON_BIN="${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python}"
 NAPCAT_LAUNCHER="${NAPCAT_LAUNCHER:-$HOME/.local/bin/napcat-qq}"
+NAPCAT_QQ_ID="${NAPCAT_QQ_ID:-$(env_value NAPCAT_QQ_ID)}"
 ONEBOT_HOST="${ONEBOT_HOST:-127.0.0.1}"
 ONEBOT_PORT="${ONEBOT_PORT:-3001}"
 WEBUI_PORT="${WEBUI_PORT:-6099}"
 WAIT_SECONDS="${WAIT_SECONDS:-180}"
+AGENT_QQ_ONLINE_NOTICE_ENABLED="${AGENT_QQ_ONLINE_NOTICE_ENABLED:-$(env_value AGENT_QQ_ONLINE_NOTICE_ENABLED)}"
+AGENT_QQ_ONLINE_NOTICE_ENABLED="${AGENT_QQ_ONLINE_NOTICE_ENABLED:-true}"
+AGENT_QQ_ONLINE_NOTICE_MESSAGE="${AGENT_QQ_ONLINE_NOTICE_MESSAGE:-$(env_value AGENT_QQ_ONLINE_NOTICE_MESSAGE)}"
+AGENT_QQ_ONLINE_NOTICE_MESSAGE="${AGENT_QQ_ONLINE_NOTICE_MESSAGE:-\"agent-qq\"已经上线}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%F %T')" "$*"
@@ -50,8 +63,13 @@ start_napcat_if_needed() {
     return 1
   fi
 
-  log "启动 NapCat/QQ：$NAPCAT_LAUNCHER"
-  nohup "$NAPCAT_LAUNCHER" > "$LOG_DIR/napcat.stdout.log" 2>&1 &
+  local napcat_cmd=("$NAPCAT_LAUNCHER")
+  if [[ -n "$NAPCAT_QQ_ID" ]]; then
+    napcat_cmd+=("-q" "$NAPCAT_QQ_ID")
+  fi
+
+  log "启动 NapCat/QQ：${napcat_cmd[*]}"
+  nohup "${napcat_cmd[@]}" > "$LOG_DIR/napcat.stdout.log" 2>&1 &
   log "NapCat/QQ 启动命令已执行，PID=$!。如未登录 QQ，请在图形界面完成登录。"
 }
 
@@ -71,6 +89,19 @@ start_bot_background_if_needed() {
   log "agent-qq 已后台启动，PID=$!。日志：$LOG_DIR/agent-qq.stdout.log"
 }
 
+send_online_notice() {
+  if [[ "$AGENT_QQ_ONLINE_NOTICE_ENABLED" != "true" ]]; then
+    return 0
+  fi
+  if [[ ! -x "$PYTHON_BIN" ]]; then
+    log "找不到 Python 解释器，跳过上线通知：$PYTHON_BIN"
+    return 0
+  fi
+  log "发送 agent-qq 上线通知。"
+  "$PYTHON_BIN" scripts/claude_notify_hook.py send "$AGENT_QQ_ONLINE_NOTICE_MESSAGE" >/dev/null 2>&1 || \
+    log "agent-qq 上线通知发送失败。"
+}
+
 run_foreground_bot() {
   if [[ ! -x "$PYTHON_BIN" ]]; then
     log "找不到 Python 解释器：$PYTHON_BIN"
@@ -88,6 +119,8 @@ wait_for_port "$ONEBOT_PORT" "OneBot WebSocket" || {
   log "OneBot WebSocket 未就绪，请确认 NapCat WebUI 中已启用 WebSocket Server：${ONEBOT_HOST}:${ONEBOT_PORT}。"
   exit 1
 }
+
+send_online_notice
 
 case "$MODE" in
   --foreground|foreground)

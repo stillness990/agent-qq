@@ -1,9 +1,13 @@
 import asyncio
 import logging
+import os
 import shlex
+import signal
+from contextlib import suppress
 from pathlib import Path
 
 from config import Settings
+from task_registry import TaskRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -11,21 +15,22 @@ logger = logging.getLogger(__name__)
 class ClaudeCodeClient:
     """Run intelligent tasks through the local Claude Code CLI."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, registry: TaskRegistry | None = None) -> None:
         self._settings = settings
+        self._registry = registry
 
-    async def ask(self, prompt: str) -> str:
-        return await self._run_claude(prompt)
+    async def ask(self, prompt: str, task_id: str | None = None) -> str:
+        return await self._run_claude(prompt, task_id=task_id)
 
-    async def code(self, prompt: str) -> str:
+    async def code(self, prompt: str, task_id: str | None = None) -> str:
         code_prompt = (
             "你是一个谨慎的代码助手。请根据用户需求生成或修改代码。"
             "如果需要执行命令，请先解释风险；不要访问未授权外部系统。\n\n"
             f"用户需求：{prompt}"
         )
-        return await self._run_claude(code_prompt)
+        return await self._run_claude(code_prompt, task_id=task_id)
 
-    async def shell(self, command: str, user_id: int) -> str:
+    async def shell(self, command: str, user_id: int, task_id: str | None = None) -> str:
         if not self._settings.enable_shell_command:
             return "当前未启用 /shell 命令。"
         if not self._settings.is_admin(user_id):
@@ -39,15 +44,13 @@ class ClaudeCodeClient:
             cwd=self._safe_workdir(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
+        if self._registry is not None:
+            self._registry.attach_process(task_id, proc.pid)
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self._settings.claude_timeout_seconds,
-            )
-        except TimeoutError:
-            proc.kill()
-            await proc.communicate()
+            stdout, stderr = await self._communicate(proc, task_id)
+        except asyncio.TimeoutError:
             return "命令执行超时，已终止。"
 
         output = stdout.decode("utf-8", errors="replace")
@@ -74,7 +77,7 @@ class ClaudeCodeClient:
             return f"Claude Code CLI 可用：{version}"
         return f"Claude Code CLI 检查失败：{error or version}"
 
-    async def _run_claude(self, prompt: str) -> str:
+    async def _run_claude(self, prompt: str, task_id: str | None = None) -> str:
         command = self._build_claude_command(prompt)
         logger.info("Running Claude Code CLI command")
 
@@ -83,15 +86,13 @@ class ClaudeCodeClient:
             cwd=self._safe_workdir(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
+        if self._registry is not None:
+            self._registry.attach_process(task_id, proc.pid)
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self._settings.claude_timeout_seconds,
-            )
-        except TimeoutError:
-            proc.kill()
-            await proc.communicate()
+            stdout, stderr = await self._communicate(proc, task_id)
+        except asyncio.TimeoutError:
             logger.warning("Claude Code CLI timed out")
             return "Claude Code 执行超时，请稍后重试或缩短问题。"
 
@@ -101,6 +102,38 @@ class ClaudeCodeClient:
             logger.error("Claude Code CLI failed: %s", error)
             return f"Claude Code 执行失败：{error or output or proc.returncode}"
         return output or "Claude Code 没有返回内容。"
+
+    async def _communicate(self, proc: asyncio.subprocess.Process, task_id: str | None) -> tuple[bytes, bytes]:
+        try:
+            return await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self._settings.claude_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            await self._terminate_process_group(proc)
+            raise
+        except asyncio.CancelledError:
+            await self._terminate_process_group(proc)
+            raise
+        finally:
+            if self._registry is not None:
+                self._registry.clear_process(task_id)
+
+    async def _terminate_process_group(self, proc: asyncio.subprocess.Process) -> None:
+        if proc.returncode is not None:
+            return
+        with suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if proc.returncode is None:
+            with suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            with suppress(Exception):
+                await proc.wait()
 
     def _build_claude_command(self, prompt: str) -> str:
         executable = shlex.quote(self._settings.claude_cli_command)

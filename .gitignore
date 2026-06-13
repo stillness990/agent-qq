@@ -8,6 +8,17 @@ __pycache__/
 .env
 logs/*.log
 logs/*.log.*
+workspace/
+
+# Claude Code / local runtime config
+.claude/
+
+# Local SOP / troubleshooting notes may contain host paths, QQ IDs, or logs
+docs/
+
+# Claude QQ notification runtime state
+data/notify-state/
+notify-state/
 
 # NapCat runtime database
 guild1.db*

@@ -6,6 +6,7 @@ from claude_client import ClaudeCodeClient
 from command_router import CommandRouter, MessageDeduplicator, parse_onebot_private_message
 from config import get_settings
 from qq_client import OneBotClient
+from task_registry import TaskRegistry
 
 
 def setup_logging(level: str) -> None:
@@ -46,6 +47,8 @@ async def handle_event(
         reply = await router.route(message)
         if reply:
             await qq.send_private_msg_chunked(message.user_id, reply)
+    except asyncio.CancelledError:
+        logging.getLogger(__name__).info("Message task cancelled: %s", dedupe_key)
     except Exception:
         logging.getLogger(__name__).exception("Failed to handle message")
         await qq.send_private_msg_chunked(message.user_id, "处理消息时发生错误，请查看日志。")
@@ -56,8 +59,9 @@ async def run_forever() -> None:
     setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
 
-    claude = ClaudeCodeClient(settings)
-    router = CommandRouter(settings, claude)
+    registry = TaskRegistry()
+    claude = ClaudeCodeClient(settings, registry)
+    router = CommandRouter(settings, claude, registry)
     deduplicator = MessageDeduplicator(settings.message_dedupe_ttl_seconds)
 
     reconnect_delay = settings.reconnect_initial_seconds
