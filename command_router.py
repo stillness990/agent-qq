@@ -110,10 +110,14 @@ def parse_onebot_private_message(payload: dict[str, Any]) -> IncomingMessage | N
         return None
     if payload.get("message_type") != "private":
         return None
+    if payload.get("self_id") and str(payload.get("self_id")) == str(payload.get("user_id")):
+        return None
 
     text = _extract_text(payload.get("message"))
     if text is None:
         text = str(payload.get("raw_message", ""))
+    if text.strip().startswith("【Claude】"):
+        return None
 
     return IncomingMessage(
         message_id=int(payload.get("message_id", 0)),

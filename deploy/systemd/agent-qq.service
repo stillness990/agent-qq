@@ -1,0 +1,20 @@
+[Unit]
+Description=agent-qq QQ AI Agent
+Documentation=file:/opt/agent-qq/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentqq
+Group=agentqq
+WorkingDirectory=/opt/agent-qq
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/agent-qq/.venv/bin/python /opt/agent-qq/bot.py
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

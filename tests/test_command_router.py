@@ -78,3 +78,28 @@ def test_parse_onebot_private_message() -> None:
     assert message.message_id == 123
     assert message.user_id == 456
     assert message.text == "/help"
+
+
+def test_parse_ignores_claude_notification_prefix() -> None:
+    payload = {
+        "post_type": "message",
+        "message_type": "private",
+        "message_id": 123,
+        "user_id": 456,
+        "message": "【Claude】本轮完成",
+    }
+
+    assert parse_onebot_private_message(payload) is None
+
+
+def test_parse_ignores_self_message() -> None:
+    payload = {
+        "post_type": "message",
+        "message_type": "private",
+        "message_id": 123,
+        "self_id": 456,
+        "user_id": 456,
+        "message": "/help",
+    }
+
+    assert parse_onebot_private_message(payload) is None

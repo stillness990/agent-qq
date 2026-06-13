@@ -8,6 +8,14 @@ __pycache__/
 .env
 logs/*.log
 logs/*.log.*
+workspace/
+
+# Claude Code / local runtime config
+.claude/
+
+# Claude QQ notification runtime state
+data/notify-state/
+notify-state/
 
 # NapCat runtime database
 guild1.db*
@@ -17,7 +25,3 @@ napcat_*.json
 .DS_Store
 .idea/
 .vscode/
-
-# Local unpublished state
-.claude/
-workspace/

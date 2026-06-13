@@ -26,6 +26,7 @@ QQ
 - 支持错误日志
 - 支持 Docker Compose 部署
 - 所有配置集中在 `.env`
+- 支持 Claude Code Hook QQ 通知，通知程序在项目内独立运行
 - 预留 MCP、RAG、多 Agent 扩展接口
 
 ## 快速开始
@@ -46,7 +47,7 @@ nano .env
 
 ```env
 ONEBOT_WS_URL=ws://host.docker.internal:3001
-ADMIN_QQ_IDS=你的QQ号
+ADMIN_QQ_IDS=<ADMIN_QQ_ID>
 CLAUDE_CONFIG_DIR=/path/to/.claude
 ```
 
@@ -172,13 +173,36 @@ python3 -m compileall .
 向指定 QQ 发送一条私聊测试消息：
 
 ```bash
-.venv/bin/python scripts/send_test_private_msg.py --to 你的QQ号 --message "agent-qq 测试消息"
+.venv/bin/python scripts/send_test_private_msg.py --to <ADMIN_QQ_ID> --message "agent-qq 测试消息"
 ```
 
 如果 NapCat 配置了 access_token，需要加上：
 
 ```bash
-.venv/bin/python scripts/send_test_private_msg.py --to 你的QQ号 --token 你的token
+.venv/bin/python scripts/send_test_private_msg.py --to <ADMIN_QQ_ID> --token <ONEBOT_ACCESS_TOKEN>
+```
+
+## Claude Code Hook QQ 通知
+
+`agent-qq` 已内置 Claude Code QQ 通知系统，代码位于：
+
+```text
+notifications/
+scripts/claude_notify_hook.py
+```
+
+该通知程序可以由 Claude Code Hook 独立调用，不依赖 `bot.py` 主进程在线；只要 NapCat / OneBot v11 WebSocket 可用，就能向管理员 QQ 发送任务开始、阶段变化、失败、长任务心跳和本轮完成汇总。
+
+通知配置集中在 `.env`，样例见 `.env.example`。完整部署和运维说明见：
+
+```text
+docs/agent-qq-complete-sop.md
+```
+
+项目计划见：
+
+```text
+docs/agent-qq-complete-sop.md
 ```
 
 ## 后续扩展

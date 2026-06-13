@@ -31,7 +31,28 @@ class Settings(BaseSettings):
     reconnect_max_seconds: int = Field(default=60, alias="RECONNECT_MAX_SECONDS")
     qq_reply_chunk_size: int = Field(default=1800, alias="QQ_REPLY_CHUNK_SIZE")
 
-    @field_validator("admin_qq_ids", mode="before")
+    claude_notify_enabled: bool = Field(default=True, alias="CLAUDE_NOTIFY_ENABLED")
+    claude_notify_qq_ids: Annotated[set[int], NoDecode] = Field(default_factory=set, alias="CLAUDE_NOTIFY_QQ_IDS")
+    claude_notify_prefix: str = Field(default="【Claude】", alias="CLAUDE_NOTIFY_PREFIX")
+    claude_notify_state_dir: Path = Field(default=Path("data/notify-state"), alias="CLAUDE_NOTIFY_STATE_DIR")
+    claude_notify_message_max_len: int = Field(default=180, alias="CLAUDE_NOTIFY_MESSAGE_MAX_LEN")
+    claude_notify_stage_cooldown_seconds: int = Field(default=60, alias="CLAUDE_NOTIFY_STAGE_COOLDOWN_SECONDS")
+    claude_notify_success_mode: Literal["off", "important", "all"] = Field(default="important", alias="CLAUDE_NOTIFY_SUCCESS_MODE")
+    claude_notify_failure_cooldown_seconds: int = Field(default=180, alias="CLAUDE_NOTIFY_FAILURE_COOLDOWN_SECONDS")
+    claude_notify_min_interval_seconds: int = Field(default=8, alias="CLAUDE_NOTIFY_MIN_INTERVAL_SECONDS")
+    claude_notify_max_per_10_minutes: int = Field(default=20, alias="CLAUDE_NOTIFY_MAX_PER_10_MINUTES")
+    claude_notify_max_per_hour: int = Field(default=60, alias="CLAUDE_NOTIFY_MAX_PER_HOUR")
+    claude_notify_session_budget: int = Field(default=25, alias="CLAUDE_NOTIFY_SESSION_BUDGET")
+    claude_notify_start_dedupe_seconds: int = Field(default=30, alias="CLAUDE_NOTIFY_START_DEDUPE_SECONDS")
+    claude_notify_stop_dedupe_seconds: int = Field(default=30, alias="CLAUDE_NOTIFY_STOP_DEDUPE_SECONDS")
+    claude_notify_long_task_seconds: int = Field(default=600, alias="CLAUDE_NOTIFY_LONG_TASK_SECONDS")
+    claude_notify_heartbeat_seconds: int = Field(default=300, alias="CLAUDE_NOTIFY_HEARTBEAT_SECONDS")
+    claude_notify_monitor_interval_seconds: int = Field(default=30, alias="CLAUDE_NOTIFY_MONITOR_INTERVAL_SECONDS")
+    claude_notify_monitor_lock_ttl_seconds: int = Field(default=120, alias="CLAUDE_NOTIFY_MONITOR_LOCK_TTL_SECONDS")
+    claude_notify_state_ttl_seconds: int = Field(default=86400, alias="CLAUDE_NOTIFY_STATE_TTL_SECONDS")
+    claude_notify_allowed_cwd_prefixes: Annotated[tuple[str, ...], NoDecode] = Field(default=(), alias="CLAUDE_NOTIFY_ALLOWED_CWD_PREFIXES")
+
+    @field_validator("admin_qq_ids", "claude_notify_qq_ids", mode="before")
     @classmethod
     def parse_admin_qq_ids(cls, value: object) -> set[int]:
         if value is None or value == "":
@@ -44,19 +65,22 @@ class Settings(BaseSettings):
             return {int(item) for item in value}
         raise TypeError("ADMIN_QQ_IDS must be a comma separated string")
 
-    @field_validator("shell_allowed_prefixes", mode="before")
+    @field_validator("shell_allowed_prefixes", "claude_notify_allowed_cwd_prefixes", mode="before")
     @classmethod
-    def parse_shell_allowed_prefixes(cls, value: object) -> tuple[str, ...]:
+    def parse_comma_separated_tuple(cls, value: object) -> tuple[str, ...]:
         if value is None or value == "":
             return tuple()
         if isinstance(value, str):
             return tuple(item.strip() for item in value.split(",") if item.strip())
         if isinstance(value, list | tuple):
             return tuple(str(item).strip() for item in value if str(item).strip())
-        raise TypeError("SHELL_ALLOWED_PREFIXES must be a comma separated string")
+        raise TypeError("value must be a comma separated string")
 
     def is_admin(self, user_id: int) -> bool:
         return user_id in self.admin_qq_ids
+
+    def notification_recipients(self) -> set[int]:
+        return self.claude_notify_qq_ids or self.admin_qq_ids
 
 
 @lru_cache
