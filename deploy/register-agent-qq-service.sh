@@ -42,6 +42,7 @@ require_executable "$PYTHON_BIN"
 require_file "$UNIT_SOURCE"
 
 info "项目目录：$PROJECT_DIR"
+info "服务运行用户：$RUN_USER:$RUN_GROUP"
 info "服务文件源：$UNIT_SOURCE"
 info "服务文件目标：$UNIT_TARGET"
 

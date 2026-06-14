@@ -47,7 +47,7 @@ nano .env
 
 ```env
 ONEBOT_WS_URL=ws://host.docker.internal:3001
-ADMIN_QQ_IDS=你的QQ号
+ADMIN_QQ_IDS=<ADMIN_QQ_ID>
 CLAUDE_CONFIG_DIR=/path/to/.claude
 ```
 
@@ -173,13 +173,13 @@ python3 -m compileall .
 向指定 QQ 发送一条私聊测试消息：
 
 ```bash
-.venv/bin/python scripts/send_test_private_msg.py --to 你的QQ号 --message "agent-qq 测试消息"
+.venv/bin/python scripts/send_test_private_msg.py --to <ADMIN_QQ_ID> --message "agent-qq 测试消息"
 ```
 
 如果 NapCat 配置了 access_token，需要加上：
 
 ```bash
-.venv/bin/python scripts/send_test_private_msg.py --to 你的QQ号 --token 你的token
+.venv/bin/python scripts/send_test_private_msg.py --to <ADMIN_QQ_ID> --token <ONEBOT_ACCESS_TOKEN>
 ```
 
 ## Claude Code Hook QQ 通知
