@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Runtime
+.env
+logs/*.log
+logs/*.log.*
+workspace/
+
+# Claude Code / local runtime config
+.claude/
+
+# Local troubleshooting notes may contain host paths, QQ IDs, or logs
+docs/sop*.md
+
+# Claude QQ notification runtime state
+data/notify-state/
+notify-state/
+
+# NapCat runtime database
+guild1.db*
+napcat_*.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
