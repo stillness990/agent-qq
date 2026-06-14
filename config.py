@@ -52,6 +52,27 @@ class Settings(BaseSettings):
     claude_notify_state_ttl_seconds: int = Field(default=86400, alias="CLAUDE_NOTIFY_STATE_TTL_SECONDS")
     claude_notify_allowed_cwd_prefixes: Annotated[tuple[str, ...], NoDecode] = Field(default=(), alias="CLAUDE_NOTIFY_ALLOWED_CWD_PREFIXES")
 
+    # --- Plan state machine ---
+    plan_history_max: int = Field(default=50, alias="PLAN_HISTORY_MAX")
+    plan_data_dir: Path = Field(default=Path("data"), alias="PLAN_DATA_DIR")
+    plan_status_log_max_age_hours: int = Field(default=24, alias="PLAN_STATUS_LOG_MAX_AGE_HOURS")
+
+    # --- Circuit breaker ---
+    circuit_breaker_enabled: bool = Field(default=True, alias="CIRCUIT_BREAKER_ENABLED")
+    circuit_breaker_max_retries: int = Field(default=3, alias="CIRCUIT_BREAKER_MAX_RETRIES")
+    circuit_breaker_task_timeout_minutes: int = Field(default=30, alias="CIRCUIT_BREAKER_TASK_TIMEOUT_MINUTES")
+
+    # --- Weather push ---
+    weather_push_script: Path = Field(
+        default=Path("/path/to/weather_wechat_push/weather_wechat_push.py"),
+        alias="WEATHER_PUSH_SCRIPT",
+    )
+
+    # --- Background monitor ---
+    monitor_enabled: bool = Field(default=True, alias="MONITOR_ENABLED")
+    monitor_poll_interval_seconds: int = Field(default=5, alias="MONITOR_POLL_INTERVAL_SECONDS")
+    monitor_network_test_hosts: Annotated[tuple[str, ...], NoDecode] = Field(default=("github.com", "api.anthropic.com", "baidu.com"), alias="MONITOR_NETWORK_TEST_HOSTS")
+
     @field_validator("admin_qq_ids", "claude_notify_qq_ids", mode="before")
     @classmethod
     def parse_admin_qq_ids(cls, value: object) -> set[int]:

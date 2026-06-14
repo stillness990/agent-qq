@@ -5,22 +5,27 @@
 | 项目 | 内容 |
 |---|---|
 | 文档名称 | agent-qq 完整 SOP |
-| 适用项目 | `/opt/agent-qq` |
-| 适用版本依据 | 当前项目代码、`README.md`、`docs/`、`Dockerfile`、`docker-compose.yml`、`deploy/systemd/`、`notifications/`、`scripts/` |
-| 适用环境 | Ubuntu/Linux、Docker Compose、本地 Python 虚拟环境、systemd 服务 |
+| 适用项目 | `/opt/agent-qq` 或 `/path/to/agent-qq` |
+| 当前版本 | **v2.0.1** — 纯指令驱动架构 |
+| 适用环境 | Ubuntu/Linux、Docker Compose、本地 Python 虚拟环境、systemd（user/system） |
 | 核心组件 | NapCat QQ、OneBot v11 WebSocket、agent-qq Python Gateway、Claude Code CLI、Claude Code Hooks QQ 通知 |
-| 推荐生产方式 | Docker Compose；需要 systemd 托管本地进程时使用 `deploy/systemd/agent-qq.service` |
-| 重要边界 | Python 业务层不直接调用 Anthropic API；智能能力由本机 `claude` CLI 提供 |
+| 架构原则 | **仅 /plan [自然语言] 可与 AI 交互，其余命令均为纯脚本/子进程，零 AI Token 消耗** |
+| 新增模块（v2.0） | `plan_state.py`（Plan 状态机）、`task_status_log.py`（状态日志）、`task_monitor.py`（后台监控）、`circuit_breaker.py`（异常熔断）、`log_rotator.py`（日志轮转） |
+| 推荐生产方式 | Docker Compose；本地推荐 systemd user service |
 
 ## 2. 核心结论
 
-`agent-qq` 是一个 QQ 私聊 AI Agent 网关：用户通过 QQ 私聊机器人，NapCat 将消息转换为 OneBot v11 WebSocket 事件，`agent-qq` 解析命令并通过 Claude Code CLI 执行智能任务，再通过 OneBot 将结果返回 QQ。
+`agent-qq` 是一个 **纯指令驱动的 QQ 私聊 AI Agent 网关**。所有消息由底层脚本解析路由，**只允许 /plan [自然语言] 触发 AI**（生成大纲），其他命令（/ping /network /status /stop /weather 等）均为纯脚本执行，零 Token 消耗。
 
-当前项目还内置了 Claude Code Hook QQ 通知系统：Claude Code 执行任务时，可通过 `scripts/claude_notify_hook.py` 独立向管理员 QQ 推送开始、阶段、失败、长任务心跳和完成汇总通知。通知系统不依赖 `bot.py` 主进程在线，只依赖 NapCat / OneBot WebSocket 可用。
+当前版本内置：
+- **5 条 Plan 命令**：完整的 /plan → /plan-status → /plan-start /plan-cancel → /plan-log 生命周期
+- **后台任务监控**：TaskMonitor 每 5s 巡检 task_status_log.json
+- **异常熔断**：Token 耗尽/网络异常/任务超时 → 自动终止 + QQ 通知 + 状态回滚
+- **Claude Code Hook QQ 通知**：独立于 bot.py 主进程的行内通知系统
 
 ## 3. 系统架构
 
-### 3.1 QQ AI Agent 主链路
+### 3.1 QQ AI Agent 主链路（v2.0.1）
 
 ```text
 用户 QQ 私聊
@@ -33,13 +38,43 @@ agent-qq WebSocket Client（qq_client.py）
   ↓
 消息去重与私聊解析（command_router.py）
   ↓
-命令路由与权限控制（CommandRouter）
-  ↓
-Claude Code CLI 调用封装（claude_client.py：claude -p）
-  ↓
-本机 Claude Code 已配置模型
-  ↓
-OneBot send_private_msg 返回 QQ 私聊
+COMMANDS 指令字典匹配（14 条路由，纯脚本）
+  ↓                                       ↓
+纯脚本命令                          /plan [自然语言]
+（/ping /status /stop /network      → PlanStateMachine
+ /weather /clear /token /shell      → Claude Code CLI（仅大纲生成）
+ /plan-status /plan-log 等）        → 结果返回
+  ↓                                       ↓
+直接返回 QQ                       → OneBot 返回 QQ
+```
+
+**AI 调用审计：** `command_router.py` 中仅 `/plan` 和 `/plan-start` 调用 `self._claude.ask()`，其余 5 处 `self._claude` 调用均为 `status()`（版本检查）或 `shell()`（子进程）。
+
+### 3.2 新增 v2.0 组件
+
+```text
+┌─────────────────────────────────────────────────┐
+│  PlanStateMachine (plan_state.py)               │
+│  ├─ /plan → PENDING → pending_plan.json         │
+│  ├─ /plan-start → EXECUTED → plan_history.json  │
+│  ├─ /plan-cancel → CANCELLED → plan_history.json│
+│  └─ /plan-log → 查询历史                        │
+├─────────────────────────────────────────────────┤
+│  TaskMonitor (task_monitor.py)                  │
+│  └─ 每 5s 轮询 task_status_log.json（零 Token） │
+├─────────────────────────────────────────────────┤
+│  CircuitBreaker (circuit_breaker.py)            │
+│  ├─ Token 耗尽检测（10 个关键词模式）            │
+│  ├─ 网络异常检测（连续 3 次 → 熔断）             │
+│  └─ 任务超时检测（默认 30 分钟）                 │
+├─────────────────────────────────────────────────┤
+│  TaskStatusLog (task_status_log.py)             │
+│  └─ 独立 JSON 状态日志，修复 /status 查询 Bug   │
+├─────────────────────────────────────────────────┤
+│  LogRotator (log_rotator.py)                    │
+│  ├─ plan_history.json 限 50 条                  │
+│  └─ task_status_log.json 终态 24h 自动清理      │
+└─────────────────────────────────────────────────┘
 ```
 
 ### 3.2 Claude Code QQ 通知链路
@@ -71,7 +106,13 @@ NapCat / OneBot v11 WebSocket
 | 配置系统 | `config.py` | 从 `.env` 读取 OneBot、Claude CLI、权限、日志、通知限流等配置 |
 | OneBot 客户端 | `qq_client.py` | 连接 NapCat OneBot v11 WebSocket，接收事件，发送私聊，支持分段回复 |
 | Claude CLI 封装 | `claude_client.py` | 执行 `claude -p <prompt>`，处理超时、stderr、工作目录 |
-| 命令路由 | `command_router.py` | `/help`、`/status`、`/ask`、`/log`、`/shell`、`/code` 与预留命令 |
+| 命令路由 | `command_router.py` | 指令字典（14 条路由）、权限控制、零 AI 兜底拦截 |
+| Plan 状态机 | `plan_state.py` | `/plan` 5 条命令生命周期、pending_plan.json / plan_history.json 管理 |
+| 任务注册表 | `task_registry.py` | 内存 + task_status_log.json 双写、Plan 关联、异常标记 |
+| 后台监控 | `task_monitor.py` | 每 5s 轮询 task_status_log.json，零 Token |
+| 熔断器 | `circuit_breaker.py` | Token 耗尽/网络异常/超时三路检测 → QQ 通知 + 回滚 |
+| 日志轮转 | `log_rotator.py` | plan_history.json 限 50 条，终态 task_status_log 24h 清理 |
+| 状态日志 | `task_status_log.py` | 独立 JSON 状态日志读写与清理 |
 | 通知模块 | `notifications/` | Hook 事件解析、通知文案、限流、状态、发送与长任务监控 |
 | Hook 入口 | `scripts/claude_notify_hook.py` | Claude Code Hook 调用入口，支持 `send/start/stage/success/failure/stop/monitor/cleanup` |
 | OneBot 检查 | `scripts/check_onebot.py` | 测试 WebSocket 是否可连接 |
@@ -82,7 +123,7 @@ NapCat / OneBot v11 WebSocket
 | Docker 镜像 | `Dockerfile` | Python 3.12 slim，安装 Node/npm、Claude Code CLI、Python 依赖 |
 | Docker 编排 | `docker-compose.yml` | 构建、挂载日志/插件/agents/Claude 配置，连接宿主机 NapCat |
 
-## 4. 当前项目目录结构
+## 4. 当前项目目录结构（v2.0.1）
 
 ```text
 agent-qq/
@@ -92,29 +133,26 @@ agent-qq/
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
-├── bot.py
-├── config.py
+├── bot.py                  ← 主入口，集成全部 v2.0 组件
+├── config.py               ← Pydantic 配置（含 v2.0 新增项）
 ├── qq_client.py
 ├── claude_client.py
-├── command_router.py
+├── command_router.py       ← 指令字典 + 零 AI 兜底
+├── plan_state.py           ← 🆕 /plan 状态机
+├── task_registry.py        ← 任务注册表（内存+持久化双写）
+├── task_status_log.py      ← 🆕 独立状态日志
+├── task_monitor.py         ← 🆕 后台巡检
+├── circuit_breaker.py      ← 🆕 异常熔断
+├── log_rotator.py          ← 🆕 日志轮转
 ├── agents/
 │   ├── __init__.py
 │   └── base.py
 ├── plugins/
 │   ├── mcp/
-│   │   ├── __init__.py
-│   │   └── base.py
 │   └── rag/
-│       ├── __init__.py
-│       └── base.py
 ├── notifications/
-│   ├── __init__.py
-│   ├── events.py
-│   ├── formatter.py
-│   ├── limiter.py
-│   ├── sender.py
-│   ├── service.py
-│   └── state.py
+│   ├── events.py / formatter.py / limiter.py
+│   ├── sender.py / service.py / state.py
 ├── scripts/
 │   ├── check_onebot.py
 │   ├── claude_notify_hook.py
@@ -122,22 +160,25 @@ agent-qq/
 │   └── start_agent_qq.sh
 ├── deploy/
 │   ├── register-agent-qq-service.sh
-│   └── systemd/
-│       └── agent-qq.service
+│   └── systemd/agent-qq.service
 ├── tests/
-│   ├── test_command_router.py
-│   └── test_notifications.py
+│   ├── test_command_router.py  ← 33 用例
+│   ├── test_task_registry.py   ← 13 用例
+│   └── test_notifications.py   ← 7 用例
 ├── docs/
-│   ├── agent-qq-install-deploy-sop.md
-│   ├── claude-notify-project-plan.md
-│   ├── claude-qq-notify-sop.md
-│   └── agent-qq-complete-sop.md
-├── logs/                  # 运行日志，不提交
-├── data/notify-state/     # 通知运行状态，不提交
-└── workspace/             # 推荐作为 Claude 工作区，不提交
+│   ├── agent-qq-complete-sop.md         ← 本文档
+│   ├── upgrade-report-20260614.md       ← v2.0.1 升级报告
+│   └── test-report-20260614.md          ← v2.0.1 测试报告
+├── data/                   ← 🆕 运行时持久化数据
+│   ├── pending_plan.json
+│   ├── plan_history.json
+│   └── task_status_log.json
+├── logs/                   # 运行日志，不提交
+├── data/notify-state/      # 通知运行状态，不提交
+└── workspace/              # 推荐作为 Claude 工作区，不提交
 ```
 
-> 注意：`logs/`、`data/notify-state/`、`workspace/`、`.env`、`.venv/`、`.claude/`、`guild1.db*` 均属于运行时或本地敏感文件，应保持在 Git 忽略范围内。
+> 🆕 = v2.0 新增。`data/` 目录存放 plan 状态文件和状态日志，应加入 `.gitignore`。
 
 ## 5. 安全边界与关键原则
 
@@ -266,6 +307,19 @@ CLAUDE_NOTIFY_ALLOWED_CWD_PREFIXES=
 | `CLAUDE_NOTIFY_MONITOR_LOCK_TTL_SECONDS` | `120` | monitor 锁 TTL |
 | `CLAUDE_NOTIFY_STATE_TTL_SECONDS` | `86400` | session 状态清理 TTL |
 | `CLAUDE_NOTIFY_ALLOWED_CWD_PREFIXES` | 空 | 可选：限制哪些 cwd 的 Claude Code 任务触发通知 |
+
+### 7.4 v2.0 新增配置项
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `PLAN_HISTORY_MAX` | `50` | plan_history.json 最大保留条数 |
+| `PLAN_DATA_DIR` | `data` | Plan 状态与日志文件存放目录 |
+| `PLAN_STATUS_LOG_MAX_AGE_HOURS` | `24` | 终态状态日志保留小时数 |
+| `CIRCUIT_BREAKER_ENABLED` | `true` | 是否启用异常熔断 |
+| `CIRCUIT_BREAKER_MAX_RETRIES` | `3` | 网络异常连续失败次数阈值 |
+| `CIRCUIT_BREAKER_TASK_TIMEOUT_MINUTES` | `30` | 单任务超时阈值 |
+| `MONITOR_ENABLED` | `true` | 是否启用后台 TaskMonitor |
+| `MONITOR_POLL_INTERVAL_SECONDS` | `5` | 监控轮询间隔 |
 
 ## 8. Claude / Anthropic 集成核对清单
 
@@ -487,9 +541,38 @@ scripts/start_agent_qq.sh background
 scripts/start_agent_qq.sh --foreground
 ```
 
-## 11. systemd 部署流程（可选）
+## 11. systemd 部署流程
 
-适用于不使用 Docker、希望本机 Python 进程由 systemd 托管的场景。
+适用于不使用 Docker、希望本机 Python 进程由 systemd 托管的场景。支持两种模式：
+
+| 模式 | Unit 位置 | 适用场景 |
+|------|----------|---------|
+| systemd user | `~/.config/systemd/user/agent-qq.service` | 单用户、无需 root、推荐 |
+| systemd system | `/etc/systemd/system/agent-qq.service` | 多用户、生产服务器 |
+
+### 11.0 当前部署参考（ww 机器）
+
+本项目当前以 **systemd user service** 方式运行：
+
+```bash
+# 项目路径
+/path/to/agent-qq/
+
+# 虚拟环境
+/path/to/agent-qq/.venv/
+
+# 服务管理
+systemctl --user status agent-qq
+systemctl --user restart agent-qq
+journalctl --user -u agent-qq -f
+```
+
+关键启动日志验证：
+```
+TaskMonitor started (poll every 5s)   ← v2.0 监控已启动
+Log rotator startup cleanup            ← v2.0 日志轮转已执行
+Connected to OneBot: ws://127.0.0.1:3001
+```
 
 ### 11.1 前置检查
 
@@ -526,18 +609,42 @@ sudo systemctl restart agent-qq
 sudo systemctl stop agent-qq
 ```
 
-## 12. QQ 命令说明
+## 12. QQ 命令说明（v2.0.1）
 
-| 命令 | 权限 | 行为 |
-|---|---|---|
-| `/help` | 所有私聊用户 | 返回命令帮助 |
-| `/status` | 所有私聊用户 | 返回运行状态、管理员状态、私聊开关、Shell 开关、Claude CLI 状态 |
-| `/ask <问题>` | 所有私聊用户 | 调用 Claude Code CLI 回答 |
-| 普通私聊文本 | 所有私聊用户 | 等价于 `/ask` |
-| `/log` | 管理员 | 返回日志位置提示 |
-| `/shell <命令>` | 管理员 + Shell 开启 + 白名单 | 执行白名单 Shell 命令 |
-| `/code <需求>` | 管理员 | 用谨慎代码助手提示词调用 Claude Code |
-| `/search` `/agent` `/mcp` `/rag` `/workflow` | 预留 | 当前返回“尚未实现” |
+### 12.1 命令总览
+
+| 类型 | 命令 | 权限 | AI？ | 行为 |
+|------|------|------|------|------|
+| 📋 Plan | `/plan <描述>` | 所有用户 | ✅ 仅大纲 | AI 生成执行大纲，存为 PENDING，不执行 |
+| 📋 Plan | `/plan-status` | 所有用户 | ❌ | 查看待确认计划 |
+| 📋 Plan | `/plan-start` | 所有用户 | ✅ 执行 | 确认并执行待确认计划 |
+| 📋 Plan | `/plan-cancel` | 所有用户 | ❌ | 取消待确认计划 |
+| 📋 Plan | `/plan-log` | 所有用户 | ❌ | 查看历史计划（含状态图标） |
+| 🔧 控制 | `/status` | 所有用户 | ❌ | 运行状态 + 任务列表 + 待确认计划 |
+| 🔧 控制 | `/stop <ID/关键词>` | 所有用户 | ❌ | 停止运行中任务 |
+| 🔧 控制 | `/kill <ID/关键词>` | 所有用户 | ❌ | 同 /stop |
+| 🔧 控制 | `/log` | 管理员 | ❌ | 日志文件 + JSON 数据路径 |
+| 🔧 控制 | `/shell <命令>` | 管理员+白名单 | ❌ | 纯 subprocess 执行 |
+| 📡 系统 | `/ping` | 所有用户 | ❌ | 心跳 + 时间 + 任务数 |
+| 📡 系统 | `/network` | 所有用户 | ❌ | Ping github.com + baidu.com → 优/良/差 |
+| 📡 系统 | `/weather` | 所有用户 | ❌ | 触发天气推送脚本（纯脚本） |
+| 📡 系统 | `/clear` | 所有用户 | ❌ | 重置上下文 + 清理待确认计划 |
+| 📡 系统 | `/token` | 所有用户 | ❌ | Claude CLI 版本（`claude --version`） |
+| 📡 系统 | `/help` | 所有用户 | ❌ | 完整命令列表 |
+
+### 12.2 已删除命令
+
+| 命令 | 原因 |
+|------|------|
+| ~~`/ask`~~ | 违反「仅 /plan 可调 AI」原则，v2.0.1 删除 |
+| ~~`/code`~~ | 违反「仅 /plan 可调 AI」原则，v2.0.1 删除 |
+| ~~普通文本兜底~~ | v2.0 起不再将未知消息传给 AI，返回 `/help` 提示 |
+
+### 12.3 关键行为变更
+
+- **未知消息**：不再调用 AI，返回 `未知指令「xxx」\n发送 /help 查看可用命令列表。`
+- **/plan 重复创建**：已有待确认计划时阻止，提示先 /plan-start 或 /plan-cancel
+- **/status 修复**：合并内存 + `task_status_log.json` 双源，执行期间可查到任务
 
 ## 13. 部署后验证与验收
 
@@ -552,10 +659,13 @@ sudo systemctl stop agent-qq
 | Docker 服务 | `docker compose ps` | `agent-qq` Up |
 | Docker 日志 | `docker compose logs -f agent-qq` | 出现 `Connected to OneBot` |
 | Docker Claude | `docker compose exec agent-qq claude -p "你好"` | 正常返回 |
-| QQ 帮助 | 私聊 `/help` | 返回命令列表 |
-| QQ 状态 | 私聊 `/status` | 返回运行状态与 Claude CLI 状态 |
-| Claude 问答 | 私聊 `/ask 你好，请只回复 OK` | 返回 Claude 答复 |
+| QQ 帮助 | 私聊 `/help` | 返回命令列表（不含 /ask /code） |
+| QQ 状态 | 私聊 `/status` | 返回运行状态 + 任务 + 待确认计划 |
+| Plan 流程 | 私聊 `/plan 你好` → `/plan-status` → `/plan-cancel` | 完整生命周期 |
+| 心跳 | 私聊 `/ping` | pong + 时间 + 任务数 |
+| 网络 | 私聊 `/network` | 优/良/差 |
 | 管理员 Shell | 私聊 `/shell pwd` | 管理员可执行白名单命令 |
+| 未知消息拦截 | 私聊 `你好` | "未知指令…发送 /help" |
 | 通知手测 | `.venv/bin/python scripts/claude_notify_hook.py send "【Claude】测试"` | 管理员 QQ 收到通知 |
 
 ### 13.2 OneBot 私聊推送测试

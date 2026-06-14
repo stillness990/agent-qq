@@ -1,0 +1,42 @@
+[
+  {
+    "id": "plan_1781416293864",
+    "description": "/plan",
+    "outline": "Claude response",
+    "status": "EXECUTED",
+    "user_id": 12345,
+    "created_at": 1781416293.8640165,
+    "updated_at": 1781416294.0279388,
+    "result": "Claude response"
+  },
+  {
+    "id": "plan_1781416294181",
+    "description": "任务A",
+    "outline": "Claude response",
+    "status": "CANCELLED",
+    "user_id": 12345,
+    "created_at": 1781416294.1810837,
+    "updated_at": 1781416294.2423422,
+    "result": ""
+  },
+  {
+    "id": "plan_1781416330416",
+    "description": "添加登录功能",
+    "outline": "Claude response",
+    "status": "EXECUTED",
+    "user_id": 12345,
+    "created_at": 1781416330.415802,
+    "updated_at": 1781416330.553831,
+    "result": "Claude response"
+  },
+  {
+    "id": "plan_1781416330651",
+    "description": "任务A",
+    "outline": "Claude response",
+    "status": "CANCELLED",
+    "user_id": 12345,
+    "created_at": 1781416330.6505094,
+    "updated_at": 1781416330.6753826,
+    "result": ""
+  }
+]

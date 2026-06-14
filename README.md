@@ -8,11 +8,13 @@
 QQ
 → NapCat QQ
 → OneBot v11
-→ Python Gateway
-→ Claude Code CLI
+→ Python Gateway（纯指令驱动）
+→ Claude Code CLI（仅 /plan 触发）
 → 已在 Claude Code 中配置的模型
 → 返回结果到 QQ
 ```
+
+**核心原则：仅 `/plan <自然语言>` 能与 AI 交互，其余所有命令均为纯脚本/子进程执行，零 AI Token 消耗。**
 
 业务层不直接调用 Claude API，也不需要在 Python 代码里配置 Anthropic SDK。所有智能能力通过本机 `claude` CLI 完成。
 
@@ -20,10 +22,13 @@ QQ
 
 - 支持 NapCat QQ / OneBot v11 WebSocket
 - 支持 QQ 私聊
-- 支持 `/help`、`/status`、`/ask`、`/log`、`/shell`、`/code`
+- 纯指令驱动架构：14 条命令，仅 `/plan` 触发 AI
+- 支持 Plan 状态机（/plan → /plan-status → /plan-start /plan-cancel → /plan-log）
+- 支持后台任务监控（5s 轮询巡检）
+- 支持异常熔断（Token 耗尽 / 网络异常 / 任务超时三路检测）
+- 支持日志轮转（条数限制 + 终态自动清理）
 - 支持自动重连
 - 支持消息去重
-- 支持错误日志
 - 支持 Docker Compose 部署
 - 所有配置集中在 `.env`
 - 支持 Claude Code Hook QQ 通知，通知程序在项目内独立运行
@@ -72,6 +77,12 @@ docker compose up -d --build
 docker compose logs -f agent-qq
 ```
 
+### 4. systemd 服务部署
+
+```bash
+sudo bash deploy/register-agent-qq-service.sh
+```
+
 ## NapCat / OneBot 配置
 
 在 NapCat 中启用 OneBot v11 WebSocket 服务，例如：
@@ -92,21 +103,44 @@ ONEBOT_WS_URL=ws://host.docker.internal:3001
 
 ## QQ 命令
 
+### 通用命令（零 Token 消耗）
+
 ```text
-/help
-/status
-/ask 你好
-/log
-/shell pwd
-/code 创建一个 Python 脚本
+/help          查看完整命令列表
+/ping          延迟检测 + 在线状态
+/network       网络质量测试（优/良/差）
+/status        查看运行中任务
+/stop <id>     按 ID 停止任务
+/kill <id>     /stop 别名
+/clear         重置上下文
+/token         查询 Token 信息
+/weather       天气推送
+/log           查看日志
+```
+
+### AI 交互（唯一入口）
+
+```text
+/plan <描述>       生成执行大纲（不执行，仅返回计划）
+/plan-status       查看待确认计划
+/plan-start        确认并执行计划
+/plan-cancel       取消待确认计划
+/plan-log          查看计划历史
+```
+
+### 管理员命令
+
+```text
+/shell <command>   执行白名单 shell 命令（仅管理员）
 ```
 
 安全策略：
 
-- `/shell` 默认只允许管理员使用；
-- `/shell` 默认只允许白名单命令前缀；
-- `/code` 默认只允许管理员使用；
-- 普通私聊文本会作为问题交给 Claude Code CLI。
+- `/shell` 默认只允许管理员使用
+- `/shell` 默认只允许白名单命令前缀
+- `/plan` 仅返回 AI 大纲，需 `/plan-start` 确认后才执行
+- 非命令文本返回 `/help` 提示，不会透传给 AI
+- 同一时间仅允许 1 个待确认计划
 
 ## Claude Code CLI
 
@@ -131,28 +165,31 @@ agent-qq/
 ├── Dockerfile
 ├── .env.example
 ├── requirements.txt
-├── bot.py
-├── config.py
-├── qq_client.py
-├── claude_client.py
-├── command_router.py
+├── bot.py                  # 主入口
+├── config.py               # 配置管理（Pydantic Settings）
+├── qq_client.py            # OneBot v11 WebSocket 客户端
+├── claude_client.py        # Claude Code CLI 调用封装
+├── command_router.py       # 指令路由（14 条命令）
+├── plan_state.py           # Plan 状态机
+├── task_registry.py        # 任务注册表
+├── task_status_log.py      # 任务状态持久化日志
+├── task_monitor.py         # 后台任务监控
+├── circuit_breaker.py      # 异常熔断器
+├── log_rotator.py          # 日志轮转
 ├── plugins/
 │   ├── mcp/
 │   └── rag/
 ├── agents/
-├── notifications/
-├── scripts/
-├── tests/
+├── notifications/          # Claude Code QQ 通知系统
+├── scripts/                # 工具脚本
+├── tests/                  # 测试用例（53 个）
+├── deploy/                 # 部署配置（systemd）
 └── README.md
 ```
 
 ## 测试
 
-本机没有 `python3-pip` / `ensurepip` 时，可以使用已安装的 `uv` 创建测试环境：
-
 ```bash
-uv venv --python python3.11 .venv
-uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python -m pytest -q
 ```
 
@@ -194,6 +231,18 @@ scripts/claude_notify_hook.py
 该通知程序可以由 Claude Code Hook 独立调用，不依赖 `bot.py` 主进程在线；只要 NapCat / OneBot v11 WebSocket 可用，就能向管理员 QQ 发送任务开始、阶段变化、失败、长任务心跳和本轮完成汇总。
 
 通知配置集中在 `.env`，样例见 `.env.example`。部署时请按实际 OneBot 地址、管理员 QQ 和 Claude Code 配置目录填写本地 `.env`；不要提交 `.env`、Claude 配置目录、日志或运行状态文件。
+
+## 异常熔断
+
+v2.0 内置三路熔断检测：
+
+| 通道 | 检测方式 | 阈值 |
+|------|---------|------|
+| Token 耗尽 | Claude 返回值关键词匹配（10 个模式） | 1 次触发 |
+| 网络异常 | 连续连接错误计数 | 3 次连续 |
+| 任务超时 | 运行时长 vs 阈值 | 30 分钟 |
+
+熔断后自动终止任务、QQ 通知管理员、状态标记 EXCEPTION。
 
 ## 后续扩展
 
